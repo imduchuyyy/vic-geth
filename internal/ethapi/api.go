@@ -35,9 +35,9 @@ import (
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
-	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/viction"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
@@ -878,7 +878,10 @@ func DoCall(ctx context.Context, b Backend, args CallArgs, blockNrOrHash rpc.Blo
 	// Setup the gas pool (also for unmetered requests)
 	// and apply the message.
 	gp := new(core.GasPool).AddGas(math.MaxUint64)
-	result, err := core.ApplyMessage(evm, msg, gp)
+	// Reproduce VRC25 sponsorship for this call: nil post-Atlas (capacity read
+	// from state) and for non-Viction chains; the pre-Atlas running map otherwise.
+	feePool := viction.NewTxProcessor(evm.ChainConfig(), state, header.Number).FeePool()
+	result, err := core.ApplyMessage(evm, msg, gp, feePool)
 	if err := vmError(); err != nil {
 		return nil, err
 	}
@@ -1146,17 +1149,9 @@ func RPCMarshalHeader(head *types.Header) map[string]interface{} {
 		"receiptsRoot":     head.ReceiptHash,
 	}
 	if head.Posv {
-		fields["posv"] = head.Posv
-		if len(head.NewAttestors) > 0 {
-			fields["newAttestors"] = posv.DecodeAttestorsFromHeader(head.NewAttestors)
-			fields["validators"] = posv.ExtractValidatorsFromCheckpointHeader(head) // only at checkpoint
-		}
-		if len(head.Attestor) > 0 {
-			fields["attestor"] = hexutil.Bytes(head.Attestor)
-		}
-		if len(head.Penalties) > 0 {
-			fields["penalties"] = posv.DecodePenaltiesFromHeader(head.Penalties)
-		}
+		fields["newAttestors"] = hexutil.Bytes(head.NewAttestors)
+		fields["attestor"] = hexutil.Bytes(head.Attestor)
+		fields["penalties"] = hexutil.Bytes(head.Penalties)
 	}
 	return fields
 }
